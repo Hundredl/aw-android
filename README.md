@@ -113,3 +113,7 @@ case-variant like `-Research` is also refused).
 ## More info
 
 For more info, check out the main [ActivityWatch repo](https://github.com/ActivityWatch/activitywatch).
+
+## Private activity journal pilot (this fork)
+
+The independent `ledger` flavor adds opt-in application timelines, conservative public-page content capture, encrypted queuing, and synchronization to an owner-controlled service. See [LEDGER.md](LEDGER.md) for build steps, privacy boundaries, and emulator validation. The standard flavor retains upstream behavior.

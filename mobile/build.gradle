@@ -3,7 +3,7 @@ apply plugin: 'kotlin-android'
 
 android {
     compileSdk 36
-    ndkVersion "28.2.13676358"
+    if (!project.hasProperty("ledgerOnly")) ndkVersion "28.2.13676358"
 
     defaultConfig {
         applicationId "net.activitywatch.android"
@@ -33,6 +33,13 @@ android {
     }
     flavorDimensions "distribution"
     productFlavors {
+        ledger {
+            dimension "distribution"
+            applicationIdSuffix ".ledger"
+            minSdkVersion 34
+            versionNameSuffix "-ledger-pilot1"
+            resValue "string", "app_name", "一天 · 活动记录"
+        }
         standard {
             dimension "distribution"
         }
@@ -167,6 +174,7 @@ dependencies {
 
 // Can be used to build with: ./gradlew cargoBuild
 // NOTE: Doesn't work, chokes on building openssl-sys
+if (!project.hasProperty('ledgerOnly')) {
 apply plugin: 'org.mozilla.rust-android-gradle.rust-android'
 
 cargo {
@@ -174,6 +182,8 @@ cargo {
     libname = "aw_server"          // Or whatever matches Cargo.toml's [package] name.
     targets = ["arm", "arm64", "x86", "x86_64"]  // See bellow for a longer list of options
     profile = 'release'  // Selects the Cargo release profile (defaults to 'debug')
+}
+
 }
 
 tasks.whenTaskAdded { task ->

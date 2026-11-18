@@ -1,0 +1,67 @@
+# 一天 · 私有活动记录试用版
+
+基于 ActivityWatch Android 的独立 `ledger` flavor，分支 `feature/private-activity-ledger`。
+沿用上游 SessionParser 的前台会话解析；标准 ActivityWatch flavor 保留原有行为。
+新的 flavor 不启动原 Rust HTTP 服务、WebWatcher、媒体读取或开机闹钟。
+
+## 构建
+
+Android SDK 36、JDK 17；试用 APK 支持 Android 14+（窗口保护检测使用 API 34）。
+
+```
+./gradlew -PledgerOnly :mobile:assembleLedgerDebug --max-workers=2
+./gradlew -PledgerOnly :mobile:assembleLedgerDebugAndroidTest --max-workers=2
+```
+
+`-PledgerOnly` 仅省去 Rust/NDK 构建配置；不要用此选项构建标准 flavor。
+独立包名 `net.activitywatch.android.ledger.debug`，不会覆盖正常 ActivityWatch。
+
+## 第一次使用
+
+1. 在私有时间线的“设备与隐私”创建测试或个人设备；范围由服务端固定，客户端不能更改。
+2. 手机授予使用情况权限；需要网页文字时再开启本应用辅助功能。
+3. 勾选允许记录的应用。网页内容还需开启内容开关、填写精确域名白名单（逗号分隔）。
+4. 填服务地址、设备凭据及 Sites 服务访问凭据。令牌用 Android Keystore 加密，禁止复制进聊天、日志或仓库。
+5. 保存后保持暂停，点击“开始记录”生效。常驻通知也可以暂停。
+6. 自动同步默认关闭；开启后约每分钟批量同步。上传成功后清空本机文字，只留哈希去重标记。
+7. “丢弃本机待同步内容”会先暂停，再清空待上传内容，保留去重标记避免重录；已发出的请求仍须到网页管理。
+8. 网页可回顾、搜索、删除、撤销设备、核对已有 Toggl 并导出草稿。本版本不会自动写 Toggl。
+
+私有服务：填写你自己的 Sites 地址；回顾页路径 `/activity`。服务地址和凭据不硬编码进客户端。
+
+## 明确边界
+
+- 应用计时只覆盖勾选应用的已完成前台会话；后台音频、画中画、多个并排窗口与持续超过24h会话未覆盖。暂停恢复不补录暂停期间活动。
+- Chrome 适配仍属试用：只采集白名单公开页面的可见文字；不等于完整文章、完整阅读历史或准确阅读时长。其他应用当前仅计时。XHS/Bilibili/微信正文不能宣称已适配。
+- 拦截锁屏、密码/编辑中的输入、已识别私密提示、敏感网址路径；截取目标窗口只用于检测受保护窗口，硬件缓冲立即关闭，原图不保存/不上传。
+- Android 无法可靠识别所有页面的敏感性，用户应只给确实公开的阅读站点授权。白名单默认空；未验证应用的内容不采集。
+- 内容在本机待上传时加密；上传后服务端存结构化文字供搜索，受私有访问与设备鉴权保护，不是端到端加密。
+- 同步被撤销或鉴权失败会自动关闭。已经发出的网络请求无法靠暂停撤回。
+- 重启后需手工打开并恢复记录；电量、后台保活、真机 Pixel 10 Pro 尚待验证。
+- 试用设置页涉及凭据，因此启用 FLAG_SECURE，不提供该页截图。
+
+## 自动验收
+
+仅在专用模拟器安装 `tools/android-activity-lab` 的合成 `lab.fixture` 与测试 APK；禁止在本人手机运行。
+将模拟器端口5173反向到本地 Sites preview，授权测试包使用情况/通知。无痕反例另起 `python3 -m http.server 5174 --bind 127.0.0.1 --directory qa/capture-fixture`，并 `adb reverse tcp:5174 tcp:5174`；不同地址避免普通页去重掩盖隐私错误。
+`PrivateLedgerTest` 在应用真实进程测试中文正例、私密/密码/FLAG_SECURE反例、暂停恢复、无暂停回填、离线排队、上传/清空、加密存储与服务端隔离。
+UIAutomator 必须用 `FLAG_DONT_SUPPRESS_ACCESSIBILITY_SERVICES`，否则测试本身会压制采集服务；参见 [Android 官方 Configurator](https://developer.android.com/reference/androidx/test/uiautomator/Configurator#setUiAutomationFlags(int))。
+
+## 2026-11-18 验证结果
+
+- Android 16/API36 ARM64 模拟器，Chrome133.0.6943.137；不是 Pixel10 真机。
+- 实际 APK 与仪器测试构建通过；上游会话解析 7 项单元测试通过。
+- 完整链路最终通过（113.862秒，人工辅助浏览器导航）：公开中文页面/Chrome正文正例；私密、密码、受保护窗口与 Chrome 无痕反例；暂停恢复无回填；应用时间；离线队列；API上传回顾；本机加密；不写Toggl。无痕页面使用独立5174地址，测试正向确认无痕标志、目标网址及实际正文均出现，再断言未新增内容，避免去重造成假通过。
+- 队列丢弃单独仪器测试通过（1.545秒），同ID事件不会重新排队。
+- Chromium/系统界面曾在 SwiftShader Vulkan 模拟渲染下卡顿；关闭 Vulkan 后本轮完整链路通过；Chrome自动导航仍有不稳定，需要人工辅助。该环境现象不作为真机性能结论。
+- 接口与页面复用后端，已私有部署。完整有效凭据链路在本地隔离后端验证；线上验证了私有访问控制、无效设备403、数据库迁移生效。线上真实设备配对与有效上传待后续本人操作验证。
+
+### 人工辅助无痕导航的复现
+
+Chrome在本模拟器的自动输入导航偶有退回空白新标签。运行以下命令后，在测试等待的无痕地址栏打开 `http://127.0.0.1:5174/`；正文与隐私断言仍由程序核验。等待上限120秒，`files/manual-state.json`只含页面检查布尔值。
+
+```sh
+adb shell am instrument -w -e manual_private 1 -e class 'net.activitywatch.android.ledger.PrivateLedgerTest#capturePrivacyAndSynchronization' net.activitywatch.android.ledger.debug.test/androidx.test.runner.AndroidJUnitRunner
+```
+
+测试在每例开始时暂停并丢弃模拟器合成待上传数据，保留去重标记；有qemu检查防止在真机运行。默认自动导航路径仍需修复，不宣称整套测试可无人值守稳定重复。
