@@ -29,6 +29,7 @@ class PrivateLedgerTest {
  @Before fun isolatedEmulatorOnly(){
   assertEquals("Never run this destructive synthetic-data test on a personal device","1",device.executeShellCommand("getprop ro.kernel.qemu").trim())
   store.dismissPending()
+  store.prefs.edit().remove("incognito_content").commit()
  }
  private fun http(path:String,body:JSONObject?=null,cookie:String=""):JSONObject {
   val c=URL(base+path).openConnection() as HttpURLConnection;c.connectTimeout=10000;c.readTimeout=10000
@@ -129,6 +130,37 @@ class PrivateLedgerTest {
   assertFalse("preferences must not expose token",java.io.File(context.applicationInfo.dataDir,"shared_prefs/ledger.xml").readText().contains(pair.getString("device_token")))
   store.setActive(false);context.stopService(Intent(context,LedgerService::class.java))
  }
+ @Test fun incognitoPreferenceDefaultsAndPersists(){
+  androidx.test.core.app.ActivityScenario.launch(LedgerActivity::class.java).use { scenario ->
+   fun views(v:android.view.View):List<android.view.View> = listOf(v) + if(v is android.view.ViewGroup)(0 until v.childCount).flatMap{views(v.getChildAt(it))}else emptyList()
+   fun controls(a:LedgerActivity):List<android.view.View> = views(a.window.decorView)
+   scenario.onActivity { a ->
+    val controls=controls(a)
+    val content=controls.filterIsInstance<android.widget.Switch>().first{it.text.toString().startsWith("允许采集")}
+    val incognito=controls.filterIsInstance<android.widget.Switch>().first{it.text.toString().startsWith("记录无痕")}
+    assertFalse("new preference defaults off",incognito.isChecked)
+    content.isChecked=false;assertFalse("content master disables incognito control",incognito.isEnabled)
+    content.isChecked=true;assertTrue(incognito.isEnabled)
+    incognito.isChecked=true
+    controls.filterIsInstance<android.widget.Button>().first{it.text=="保存设置并暂停"}.performClick()
+    assertTrue(store.prefs.getBoolean("incognito_content",false));assertFalse("saving pauses capture",store.active())
+   }
+   scenario.recreate()
+   scenario.onActivity { a ->
+    val controls=controls(a)
+    val incognito=controls.filterIsInstance<android.widget.Switch>().first{it.text.toString().startsWith("记录无痕")}
+    assertTrue("choice survives recreation",incognito.isChecked)
+    incognito.isChecked=false
+    controls.filterIsInstance<android.widget.Button>().first{it.text=="保存设置并暂停"}.performClick()
+    assertFalse(store.prefs.getBoolean("incognito_content",true));assertFalse(store.active())
+   }
+   scenario.recreate()
+   scenario.onActivity { a ->
+    assertFalse("off choice survives recreation",controls(a).filterIsInstance<android.widget.Switch>().first{it.text.toString().startsWith("记录无痕")}.isChecked)
+   }
+  }
+ }
+
  @Test fun discardQueueKeepsReplayTombstone(){
   store.prefs.edit().putString("packages","lab.fixture").commit();store.setActive(true)
   val now=System.currentTimeMillis()

@@ -29,7 +29,7 @@ class LedgerActivity:Activity(){
         toggle=button(""){if(store.active()){store.setActive(false);stopService(Intent(this,LedgerService::class.java))}else{if(!SessionUtils.hasUsageStatsPermission(this)){Toast.makeText(this,"请先授予使用情况权限",Toast.LENGTH_LONG).show()}else{store.setActive(true);startForegroundService(Intent(this,LedgerService::class.java))}};refresh()}
         button("1 · 授予应用使用情况权限"){startActivity(Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS))}
         button("2 · 开启内容记录辅助功能（可选）"){startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))}
-        text("只记录你勾选的应用。内容试用目前支持 Chrome 白名单公开网页，其他应用仅计时。无痕、输入中、密码、锁屏、受保护窗口均跳过；不是完整浏览历史。",14f)
+        text("只记录你勾选的应用。内容试用目前支持 Chrome 白名单网页，其他应用仅计时。无痕内容默认跳过，可单独开启；输入中、密码、锁屏、受保护窗口仍跳过。不是完整浏览历史。",14f)
         selected=store.prefs.getString("packages","")!!.split(',').filter{it.isNotBlank()}.toMutableSet()
         val selectedLabel=text("",14f)
         fun selectionLabel(){selectedLabel.text=if(selected.isEmpty())"未选择应用，当前不会记录任何活动" else "已选择 ${selected.size} 个应用"}
@@ -40,6 +40,9 @@ class LedgerActivity:Activity(){
             AlertDialog.Builder(this).setTitle("仅这些应用会被记录").setMultiChoiceItems(items.map{it.second}.toTypedArray(),items.map{it.first in draft}.toBooleanArray()){_,i,checked->if(checked)draft.add(items[i].first)else draft.remove(items[i].first)}.setPositiveButton("选好，稍后保存"){_,_->selected=draft;selectionLabel()}.setNegativeButton("取消",null).show()
         }
         val content=Switch(this).also{it.text="允许采集白名单网页标题 / 可见文字";it.isChecked=store.prefs.getBoolean("content",false);box.addView(it)}
+        val incognito=Switch(this).also{it.text="记录无痕页面内容（默认关闭）";it.isChecked=store.prefs.getBoolean("incognito_content",false);it.isEnabled=content.isChecked;box.addView(it)}
+        content.setOnCheckedChangeListener{_,enabled->incognito.isEnabled=enabled}
+        text("仅控制无痕页面的标题和可见文字，浏览器应用计时仍由应用白名单控制。开启后遵循相同域名白名单，并按同步设置上传到你的服务；浏览器禁止采集的窗口仍会跳过。保存设置并重新开始后生效，不补录过去的内容。关闭不会删除已有记录，可用下方丢弃功能或网页删除。",13f)
         val domains=input("允许的网页域名（英文逗号分隔，精确匹配）",store.prefs.getString("domains","")!!)
         text("不保存原图。只有屏幕上可见的文字，不读取输入框、聊天数据库或后台内容。默认不打开内容采集。",13f)
         text("同步到你的服务",22f)
@@ -50,7 +53,7 @@ class LedgerActivity:Activity(){
         button("保存设置并暂停"){
             store.setActive(false);stopService(Intent(this,LedgerService::class.java))
             try {if(device.text.isNotBlank())store.saveSecret("device_token",device.text.toString().trim());if(site.text.isNotBlank())store.saveSecret("site_token",site.text.toString().trim())
-                store.prefs.edit().putString("endpoint",endpoint.text.toString().trim()).putString("packages",selected.joinToString(",")).putString("domains",domains.text.toString().trim()).putBoolean("content",content.isChecked).putBoolean("sync",sync.isChecked).commit()
+                store.prefs.edit().putString("endpoint",endpoint.text.toString().trim()).putString("packages",selected.joinToString(",")).putString("domains",domains.text.toString().trim()).putBoolean("content",content.isChecked).putBoolean("incognito_content",incognito.isChecked).putBoolean("sync",sync.isChecked).commit()
                 device.setText("");site.setText("");Toast.makeText(this,"已保存；点开始后生效",Toast.LENGTH_SHORT).show()
             }catch(_:Exception){Toast.makeText(this,"保存失败，请重试",Toast.LENGTH_LONG).show()};refresh()
         }

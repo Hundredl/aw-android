@@ -8,7 +8,7 @@ import android.view.accessibility.AccessibilityEvent
 import net.activitywatch.android.BuildConfig
 import java.net.URI
 
-/** Conservative first adapter: Chrome public allowlisted pages; other apps remain app-time only. */
+/** Conservative first adapter: Chrome allowlisted pages with explicit incognito opt-in; other apps remain app-time only. */
 class ContentService:AccessibilityService(){
     companion object { @Volatile var connected=false }
     private val handler=Handler(Looper.getMainLooper())
@@ -38,7 +38,7 @@ class ContentService:AccessibilityService(){
             }
             read(root,false)
             val privacy=labels.toString()
-            if(blocked||Regex("incognito|无痕|隐身|PRIVATE_TEST|密码|验证码|password|credit.card",RegexOption.IGNORE_CASE).containsMatchIn(privacy))return null
+            if(blocked||ContentPrivacy.blocks(privacy,store.prefs.getBoolean("incognito_content",false)))return null
             var url=""
             if(pkg=="com.android.chrome"){
                 val nodes=root.findAccessibilityNodeInfosByViewId("com.android.chrome:id/url_bar")
