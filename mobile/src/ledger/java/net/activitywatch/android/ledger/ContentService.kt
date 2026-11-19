@@ -13,11 +13,12 @@ class ContentService:AccessibilityService(){
     companion object { @Volatile var connected=false }
     private val handler=Handler(Looper.getMainLooper())
     private lateinit var store:LedgerStore
+    private var automaticOcr: AutomaticOcr? = null
     private var pending=false
     private var lastHash=""
     private var lastAt=0L
     private data class Page(val window:Int,val pkg:String,val title:String,val text:String,val url:String)
-    override fun onServiceConnected(){store=LedgerStore(this);connected=true}
+    override fun onServiceConnected(){store=LedgerStore(this);automaticOcr=AutomaticOcr(this,store);connected=true}
     private fun page():Page? {
         if(!::store.isInitialized||!LedgerService.running||!store.active()||!store.prefs.getBoolean("content",false))return null
         if(!getSystemService(PowerManager::class.java).isInteractive||getSystemService(KeyguardManager::class.java).isKeyguardLocked)return null
@@ -78,7 +79,10 @@ class ContentService:AccessibilityService(){
             }
         }
     }
-    override fun onAccessibilityEvent(event:AccessibilityEvent?){handler.removeCallbacks(capture);handler.postDelayed(capture,900)}
-    override fun onInterrupt(){handler.removeCallbacks(capture)}
-    override fun onDestroy(){connected=false;handler.removeCallbacksAndMessages(null);super.onDestroy()}
+    override fun onAccessibilityEvent(event:AccessibilityEvent?){
+        automaticOcr?.onEvent(event)
+        handler.removeCallbacks(capture);handler.postDelayed(capture,900)
+    }
+    override fun onInterrupt(){automaticOcr?.cancel();handler.removeCallbacks(capture)}
+    override fun onDestroy(){automaticOcr?.cancel();automaticOcr=null;connected=false;handler.removeCallbacksAndMessages(null);super.onDestroy()}
 }

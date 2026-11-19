@@ -43,7 +43,7 @@ class LedgerActivity:Activity(){
         text("记录和统计都在手机完成，无需联网。同步只作为可选备份，成功后仍保留本地加密记录。",14f)
         button("1 · 授予应用使用情况权限"){startActivity(Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS))}
         button("2 · 开启内容记录辅助功能（可选）"){startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))}
-        text("只记录你勾选的应用。内容试用目前支持 Chrome 白名单网页，其他应用仅计时。无痕内容默认跳过，可单独开启；输入中、密码、锁屏、受保护窗口仍跳过。不是完整浏览历史。",14f)
+        text("只记录你勾选的应用。内容试用目前支持 Chrome 白名单网页，飞书截图识别可独立开启。无痕内容默认跳过，可单独开启；输入中、密码、锁屏、受保护窗口仍跳过。不是完整浏览历史。",14f)
         selected=store.prefs.getString("packages","")!!.split(',').filter{it.isNotBlank()}.toMutableSet()
         val selectedLabel=text("",14f)
         fun selectionLabel(){selectedLabel.text=if(selected.isEmpty())"未选择应用，当前不会记录任何活动" else "已选择 ${selected.size} 个应用"}
@@ -79,6 +79,30 @@ class LedgerActivity:Activity(){
         text("仅控制无痕页面的标题和可见文字，浏览器应用计时仍由应用白名单控制。开启后遵循相同域名白名单，并按同步设置上传到你的服务；浏览器禁止采集的窗口仍会跳过。点“保存并开始记录”后生效，不补录过去的内容。关闭不会删除已有记录，可用下方丢弃功能或网页删除。",13f)
         val domains=input("允许的网页域名（英文逗号分隔，精确匹配）",store.prefs.getString("domains","")!!)
         text("不保存原图。只有屏幕上可见的文字，不读取输入框、聊天数据库或后台内容。默认不打开内容采集。",13f)
+        text("飞书页面识别",22f)
+        val autoOcr=Switch(this).apply {
+            text="自动识别飞书页面（仅本机）"
+            isChecked=store.prefs.getBoolean("automatic_ocr",false)
+            setOnCheckedChangeListener { _, enabled ->
+                if(!store.setAutomaticOcr(enabled)){
+                    Toast.makeText(this@LedgerActivity,"设置保存失败，请重试",Toast.LENGTH_SHORT).show()
+                }
+                refresh()
+            }
+            box.addView(this)
+        }
+        text("开启辅助功能、允许记录飞书并开始记录后，停在页面上会自动识别可见文字。文字可能包含聊天内容，保存在本机历史。",14f)
+        button("清除本机截图文字"){
+            AlertDialog.Builder(this).setTitle("清除本机自动识别的截图文字？")
+                .setMessage("同时关闭飞书自动识别。应用使用时段仍可查看。")
+                .setNegativeButton("取消",null)
+                .setPositiveButton("关闭并清除"){_,_->
+                    autoOcr.isChecked=false
+                    store.clearLocalOcr()
+                    summaryCount=-1
+                    refresh()
+                }.show()
+        }
         val cloudSettings=LinearLayout(this).also{it.orientation=1;it.visibility=android.view.View.GONE}
         button("云端同步设置（可选）"){cloudSettings.visibility=if(cloudSettings.visibility==android.view.View.VISIBLE)android.view.View.GONE else android.view.View.VISIBLE}
         val root=box;box.addView(cloudSettings);box=cloudSettings
@@ -127,7 +151,8 @@ class LedgerActivity:Activity(){
         val headline=when{!allowed->"○ 未开始：先选择应用";!permission->"○ 未开始：需要使用情况权限";store.active()&&LedgerService.running->"● 正在本机记录";store.active()->"◌ 正在启动";else->"○ 已暂停"}
         val paired=store.prefs.getString("endpoint","").orEmpty().isNotBlank()&&store.prefs.contains("device_token")&&store.prefs.contains("site_token")
         val cloud=if(!paired)"云端未配置 · 记录只留在本机" else if(store.prefs.getBoolean("sync",false))"自动同步 · ${SyncCadence.labels[SyncCadence.minutes.indexOf(SyncCadence.normalized(store.prefs.getInt("sync_interval_minutes",60)))]}" else "自动同步已关闭"
-        state.text="$headline  · 本机已采集 ${n.first} 条\n$cloud${if(paired)" · 待同步 ${n.second} 条" else ""}\n"+store.prefs.getString("status","")+"\n使用情况权限：${if(permission)"已授予" else "缺失"} · 内容服务：${if(ContentService.connected)"已连接" else "未开启"}"
+        val ocrState=if(!store.prefs.getBoolean("automatic_ocr",false))"" else if(ContentService.connected&&store.active()&&store.allowed("com.ss.android.lark"))"\n飞书自动识别 · 已开启" else "\n飞书自动识别 · 等待飞书授权、辅助功能和记录开启"
+        state.text="$headline  · 本机已采集 ${n.first} 条\n$cloud${if(paired)" · 待同步 ${n.second} 条" else ""}\n"+store.prefs.getString("status","")+"\n使用情况权限：${if(permission)"已授予" else "缺失"} · 内容服务：${if(ContentService.connected)"已连接" else "未开启"}$ocrState"
         toggle.text=if(store.active())"暂停记录与自动同步" else "开始记录"
     }
     private fun duration(ms:Long):String {val m=ms/60000;return if(m>=60)"${m/60} 小时 ${m%60} 分钟" else if(m>0)"$m 分钟" else "${ms/1000} 秒"}

@@ -9,9 +9,9 @@ import android.os.SystemClock
 import androidx.core.content.FileProvider
 import androidx.test.core.app.ActivityScenario
 import androidx.test.platform.app.InstrumentationRegistry
-import androidx.test.uiautomator.By
-import androidx.test.uiautomator.UiDevice
-import androidx.test.uiautomator.Until
+import android.view.View
+import android.view.ViewGroup
+import android.widget.TextView
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.io.File
@@ -46,20 +46,31 @@ class OcrPreviewTest {
                 .putExtra(Intent.EXTRA_STREAM, uri)
                 .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
             val start = SystemClock.elapsedRealtime()
-            ActivityScenario.launch<OcrPreviewActivity>(intent).use {
-                val device = UiDevice.getInstance(instrumentation)
-                assertTrue(
-                    "Expected both Chinese and English text in the screenshot preview",
-                    device.wait(Until.hasObject(
-                        By.textContains("今天阅读项目文档")
-                    ), 30_000)
-                )
+            ActivityScenario.launch<OcrPreviewActivity>(intent).use { scenario ->
+                var recognized = false
+                var preview = ""
+                val deadline = SystemClock.elapsedRealtime() + 30_000
+                while (!recognized && SystemClock.elapsedRealtime() < deadline) {
+                    scenario.onActivity { activity ->
+                        val root = activity.findViewById<View>(android.R.id.content)
+                        preview = visibleText(root).joinToString("\n")
+                        val normalized = preview.filterNot { it.isWhitespace() }
+                        recognized = listOf("今天阅读项目文档", "明天下午开会", "ProjectNotes")
+                            .all { normalized.contains(it, ignoreCase = true) }
+                    }
+                    if (!recognized) SystemClock.sleep(100)
+                }
+                assertTrue("Expected the fixture phrases. Synthetic preview: $preview", recognized)
                 println("OCR share to preview: ${SystemClock.elapsedRealtime() - start} ms")
-                assertTrue(device.hasObject(By.textContains("明天下午开会")))
-                assertTrue(device.hasObject(By.textContains("Project Notes")))
             }
         } finally {
             image.delete()
         }
+    }
+
+    private fun visibleText(view: View): List<String> = when (view) {
+        is TextView -> listOf(view.text.toString())
+        is ViewGroup -> (0 until view.childCount).flatMap { visibleText(view.getChildAt(it)) }
+        else -> emptyList()
     }
 }
