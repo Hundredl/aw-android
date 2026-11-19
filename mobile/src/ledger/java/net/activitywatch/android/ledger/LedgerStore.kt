@@ -20,7 +20,7 @@ import java.time.Instant
 /** All changes to capture state and inserts share this lock, including async callbacks. */
 class LedgerStore(val context: Context) {
     val prefs = context.getSharedPreferences("ledger", Context.MODE_PRIVATE)
-    companion object { private const val LOCAL_ONLY = 2; val lock = Any(); fun hash(s:String)=MessageDigest.getInstance("SHA-256").digest(s.toByteArray()).joinToString(""){"%02x".format(it)} }
+    companion object { const val FEISHU_PACKAGE = "com.ss.android.lark"; private const val LOCAL_ONLY = 2; val lock = Any(); fun hash(s:String)=MessageDigest.getInstance("SHA-256").digest(s.toByteArray()).joinToString(""){"%02x".format(it)} }
     private val helper=object:SQLiteOpenHelper(context,"private-ledger.db",null,1){
         override fun onCreate(db:SQLiteDatabase){db.execSQL("CREATE TABLE events(id TEXT PRIMARY KEY,payload TEXT NOT NULL,synced INTEGER NOT NULL DEFAULT 0,created INTEGER NOT NULL)")}
         override fun onUpgrade(db:SQLiteDatabase,old:Int,new:Int){}
@@ -38,8 +38,18 @@ class LedgerStore(val context: Context) {
     fun setActive(value:Boolean)=synchronized(lock){prefs.edit().putBoolean("active",value).putLong("since",System.currentTimeMillis()).putLong("cursor",System.currentTimeMillis()).putLong("generation",generation()+1).commit()}
     fun allowed(pkg:String)=prefs.getString("packages","")!!.split(',').map{it.trim()}.contains(pkg) && pkg!=context.packageName
     fun status(s:String){prefs.edit().putString("status",s).apply()}
-    fun setAutomaticOcr(enabled: Boolean) = synchronized(lock) {
-        prefs.edit().putBoolean("automatic_ocr", enabled)
+    fun setAutomaticOcr(enabled: Boolean) = updateOcrSetting("automatic_ocr", enabled)
+
+    fun setAutomaticOcrAll(enabled: Boolean) = updateOcrSetting("automatic_ocr_all", enabled)
+
+    fun automaticOcrAll(): Boolean = prefs.getBoolean("automatic_ocr_all", false)
+
+    fun canOcrPackage(packageName: String): Boolean =
+        allowed(packageName) && (automaticOcrAll() || packageName == FEISHU_PACKAGE ||
+            (net.activitywatch.android.BuildConfig.DEBUG && packageName == "lab.fixture"))
+
+    private fun updateOcrSetting(key: String, enabled: Boolean) = synchronized(lock) {
+        prefs.edit().putBoolean(key, enabled)
             .putLong("automatic_ocr_revision", prefs.getLong("automatic_ocr_revision", 0) + 1)
             .commit()
     }
@@ -49,7 +59,8 @@ class LedgerStore(val context: Context) {
     }
 
     fun addLocalOcr(event: JSONObject, expected: Long, revision: Long): Boolean = synchronized(lock) {
-        if (!canRecord(event, expected) || !prefs.getBoolean("automatic_ocr", false) ||
+        if (!canRecord(event, expected) || !canOcrPackage(event.getString("package")) ||
+            !prefs.getBoolean("automatic_ocr", false) ||
             prefs.getLong("automatic_ocr_revision", 0) != revision
         ) return@synchronized false
         insert(event, LOCAL_ONLY)

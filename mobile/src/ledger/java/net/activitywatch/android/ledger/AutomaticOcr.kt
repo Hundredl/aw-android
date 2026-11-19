@@ -13,14 +13,13 @@ import android.view.accessibility.AccessibilityWindowInfo
 import com.google.mlkit.vision.common.InputImage
 import com.google.mlkit.vision.text.TextRecognition
 import com.google.mlkit.vision.text.chinese.ChineseTextRecognizerOptions
-import net.activitywatch.android.BuildConfig
 
 /** Samples the window after an opted-in page settles. Only recognized text reaches storage. */
 internal class AutomaticOcr(
     private val service: AccessibilityService,
     private val store: LedgerStore
 ) {
-    private data class Target(val windowId: Int, val packageName: String, val appName: String)
+    private data class Target(val windowId: Int, val packageName: String)
     private data class Request(val target: Target, val generation: Long, val revision: Long, val epoch: Long)
 
     private val handler = Handler(Looper.getMainLooper())
@@ -34,7 +33,7 @@ internal class AutomaticOcr(
     fun onEvent(event: AccessibilityEvent?) {
         val packageName = event?.packageName?.toString()
         if (event?.eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) epoch++
-        if (!isEnabled() || !isSupported(packageName) || !store.allowed(packageName.orEmpty())) {
+        if (!isEnabled() || packageName == null || !store.canOcrPackage(packageName)) {
             if (event?.eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) {
                 handler.removeCallbacks(capture)
             }
@@ -57,25 +56,24 @@ internal class AutomaticOcr(
     private fun isEnabled(): Boolean =
         LedgerService.running && store.active() && store.prefs.getBoolean("automatic_ocr", false)
 
-    private fun isSupported(packageName: String?): Boolean =
-        packageName == FEISHU_PACKAGE || (BuildConfig.DEBUG && packageName == "lab.fixture")
-
     private fun target(): Target? {
         if (!isEnabled() || !service.getSystemService(PowerManager::class.java).isInteractive ||
             service.getSystemService(KeyguardManager::class.java).isKeyguardLocked
         ) return null
-        val windows = service.windows
-        val typing = try {
-            windows.any { it.type == AccessibilityWindowInfo.TYPE_INPUT_METHOD }
-        } finally {
-            windows.forEach { it.recycle() }
-        }
-        if (typing) return null
         val root = service.rootInActiveWindow ?: return null
-        return try {
+        try {
             val packageName = root.packageName?.toString() ?: return null
-            if (!isSupported(packageName) || !store.allowed(packageName) || !safeTree(root)) return null
-            Target(root.windowId, packageName, if (packageName == FEISHU_PACKAGE) "飞书" else "测试阅读器")
+            if (!store.canOcrPackage(packageName)) return null
+
+            val windows = service.windows
+            val canCaptureWindow = try {
+                windows.any { it.id == root.windowId && it.type == AccessibilityWindowInfo.TYPE_APPLICATION } &&
+                    windows.none { it.type == AccessibilityWindowInfo.TYPE_INPUT_METHOD }
+            } finally {
+                windows.forEach { it.recycle() }
+            }
+            if (!canCaptureWindow || !safeTree(root)) return null
+            return Target(root.windowId, packageName)
         } finally {
             root.recycle()
         }
@@ -193,8 +191,15 @@ internal class AutomaticOcr(
         val elapsed = SystemClock.elapsedRealtime()
         if (hash == lastHash && elapsed - lastSaved < 60_000) return
         val now = System.currentTimeMillis()
-        val event = store.event("content", target.packageName, target.appName, now, now + 1,
-            "${target.appName} · 截图文字", text.take(6000))
+        val packageManager = service.packageManager
+        val appName = try {
+            packageManager.getApplicationLabel(packageManager.getApplicationInfo(target.packageName, 0)).toString()
+        } catch (_: android.content.pm.PackageManager.NameNotFoundException) {
+            target.packageName
+        }
+        val event = store.event(
+            "content", target.packageName, appName, now, now + 1, "$appName · 截图文字", text.take(6000)
+        )
         if (store.addLocalOcr(event, request.generation, request.revision)) {
             lastHash = hash
             lastSaved = elapsed
@@ -202,7 +207,6 @@ internal class AutomaticOcr(
     }
 
     private companion object {
-        const val FEISHU_PACKAGE = "com.ss.android.lark"
         const val SETTLE_MS = 1_500L
         const val INTERVAL_MS = 15_000L
     }
