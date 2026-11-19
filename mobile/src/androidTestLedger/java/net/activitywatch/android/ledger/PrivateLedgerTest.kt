@@ -131,6 +131,7 @@ class PrivateLedgerTest {
   store.setActive(false);context.stopService(Intent(context,LedgerService::class.java))
  }
  @Test fun incognitoPreferenceDefaultsAndPersists(){
+  store.prefs.edit().putString("packages","").commit()
   androidx.test.core.app.ActivityScenario.launch(LedgerActivity::class.java).use { scenario ->
    fun views(v:android.view.View):List<android.view.View> = listOf(v) + if(v is android.view.ViewGroup)(0 until v.childCount).flatMap{views(v.getChildAt(it))}else emptyList()
    fun controls(a:LedgerActivity):List<android.view.View> = views(a.window.decorView)
@@ -142,8 +143,8 @@ class PrivateLedgerTest {
     content.isChecked=false;assertFalse("content master disables incognito control",incognito.isEnabled)
     content.isChecked=true;assertTrue(incognito.isEnabled)
     incognito.isChecked=true
-    controls.filterIsInstance<android.widget.Button>().first{it.text=="保存设置并暂停"}.performClick()
-    assertTrue(store.prefs.getBoolean("incognito_content",false));assertFalse("saving pauses capture",store.active())
+    controls.filterIsInstance<android.widget.Button>().first{it.text=="保存并开始记录"}.performClick()
+    assertTrue(store.prefs.getBoolean("incognito_content",false));assertFalse("empty selection cannot start capture",store.active())
    }
    scenario.recreate()
    scenario.onActivity { a ->
@@ -151,7 +152,7 @@ class PrivateLedgerTest {
     val incognito=controls.filterIsInstance<android.widget.Switch>().first{it.text.toString().startsWith("记录无痕")}
     assertTrue("choice survives recreation",incognito.isChecked)
     incognito.isChecked=false
-    controls.filterIsInstance<android.widget.Button>().first{it.text=="保存设置并暂停"}.performClick()
+    controls.filterIsInstance<android.widget.Button>().first{it.text=="保存并开始记录"}.performClick()
     assertFalse(store.prefs.getBoolean("incognito_content",true));assertFalse(store.active())
    }
    scenario.recreate()

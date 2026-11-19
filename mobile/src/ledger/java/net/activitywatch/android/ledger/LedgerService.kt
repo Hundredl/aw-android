@@ -29,7 +29,7 @@ class LedgerService:Service(){
     }
     override fun onStartCommand(i:Intent?,flags:Int,id:Int):Int {
         if(i?.action=="pause"){store.setActive(false);stopSelf();return START_NOT_STICKY}
-        if(!store.active()){stopSelf();return START_NOT_STICKY}
+        if(!store.active()||store.prefs.getString("packages","").orEmpty().split(',').none{it.isNotBlank()&&it!=packageName}){store.setActive(false);stopSelf();return START_NOT_STICKY}
         if(i?.action=="sync")worker.execute{try{collect();sync()}catch(_:Exception){store.status("同步失败；本地队列保留")}}
         return START_STICKY
     }
