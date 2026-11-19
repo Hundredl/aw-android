@@ -37,7 +37,7 @@ android {
             dimension "distribution"
             applicationIdSuffix ".ledger"
             minSdkVersion 34
-            versionNameSuffix "-ledger-pilot4"
+            versionNameSuffix "-ledger-pilot6"
             resValue "string", "app_name", "一天 · 活动记录"
         }
         standard {

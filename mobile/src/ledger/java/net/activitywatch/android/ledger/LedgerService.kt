@@ -17,15 +17,15 @@ class LedgerService:Service(){
     companion object { @Volatile var running=false }
     private lateinit var store:LedgerStore
     private val worker=Executors.newSingleThreadScheduledExecutor()
-    private var lastSync=0L
     override fun onBind(i:Intent?)=null
     override fun onCreate(){super.onCreate();store=LedgerStore(this)
         getSystemService(NotificationManager::class.java).createNotificationChannel(NotificationChannel("ledger","活动记录",NotificationManager.IMPORTANCE_LOW))
         val open=PendingIntent.getActivity(this,0,Intent(this,LedgerActivity::class.java),PendingIntent.FLAG_IMMUTABLE)
         val pause=PendingIntent.getService(this,1,Intent(this,LedgerService::class.java).setAction("pause"),PendingIntent.FLAG_IMMUTABLE)
         startForeground(42,Notification.Builder(this,"ledger").setSmallIcon(android.R.drawable.ic_menu_recent_history).setContentTitle("一天 · 正在记录白名单应用").setContentText("点此查看；暂停立即停止采集和自动上传").setContentIntent(open).addAction(Notification.Action.Builder(null,"暂停",pause).build()).build())
+        if(!store.prefs.contains("last_sync_attempt"))store.prefs.edit().putLong("last_sync_attempt",System.currentTimeMillis()).commit()
         running=true
-        worker.scheduleWithFixedDelay({try{collect();if(store.prefs.getBoolean("sync",false)&&System.currentTimeMillis()-lastSync>60000){sync();lastSync=System.currentTimeMillis()}}catch(_:Exception){store.status("采集或同步暂不可用；本地记录已保留")}},2,10,TimeUnit.SECONDS)
+        worker.scheduleWithFixedDelay({try{collect();if(store.prefs.getBoolean("sync",false)&&SyncCadence.due(System.currentTimeMillis(),store.prefs.getLong("last_sync_attempt",System.currentTimeMillis()),store.prefs.getInt("sync_interval_minutes",60))){sync()}}catch(_:Exception){store.status("采集或同步暂不可用；本地记录已保留")}},2,10,TimeUnit.SECONDS)
     }
     override fun onStartCommand(i:Intent?,flags:Int,id:Int):Int {
         if(i?.action=="pause"){store.setActive(false);stopSelf();return START_NOT_STICKY}
@@ -43,26 +43,32 @@ class LedgerService:Service(){
         sessions.maxOfOrNull{it.endTime}?.let{store.advanceCursor(maxOf(since,it-1),generation)}
     }
     private fun sync(){
-        val g=store.generation();if(!store.active())return
+        store.prefs.edit().putLong("last_sync_attempt",System.currentTimeMillis()).commit()
+        // Drain a bounded backlog in this scheduled cycle, without waiting another hour per 50 events.
+        repeat(20){if(!syncBatch())return}
+    }
+    private fun syncBatch():Boolean{
+        val g=store.generation();if(!store.active())return false
         val endpoint=store.prefs.getString("endpoint","")!!.trim().trimEnd('/')
         val uri=URI(endpoint)
         require(uri.scheme=="https" || (BuildConfig.DEBUG && uri.scheme=="http" && uri.host in listOf("127.0.0.1","localhost")))
         require(uri.userInfo==null&&uri.query==null&&uri.fragment==null&&uri.path in listOf("","/"))
         val token=store.secret("device_token");require(token.isNotBlank())
-        val batch=store.pending();if(batch.length()==0){store.status("已同步，没有待上传记录");return}
+        val batch=store.pending();if(batch.length()==0){store.status("已同步，没有待上传记录");return false}
         val con=URI("$endpoint/api/capture").toURL().openConnection() as HttpURLConnection
         try {
             con.instanceFollowRedirects=false;con.connectTimeout=10000;con.readTimeout=10000;con.requestMethod="POST";con.doOutput=true
             con.setRequestProperty("Content-Type","application/json");con.setRequestProperty("Authorization","Bearer $token")
             val service=store.secret("site_token");if(service.isNotBlank())con.setRequestProperty("OAI-Sites-Authorization","Bearer $service")
             // Pause prevents queued uploads. A request already sent cannot be recalled.
-            synchronized(LedgerStore.lock){if(!store.active()||g!=store.generation())return}
+            synchronized(LedgerStore.lock){if(!store.active()||g!=store.generation())return false}
             con.outputStream.use{it.write(JSONObject().put("events",batch).toString().toByteArray())}
             when(con.responseCode){
-                200->{val response=con.inputStream.bufferedReader().use{it.readText().take(100000)};store.acknowledge(JSONObject(response).getJSONArray("accepted"));store.status("同步成功 · 本批 ${batch.length()} 条")}
+                200->{val response=con.inputStream.bufferedReader().use{it.readText().take(100000)};store.acknowledge(JSONObject(response).getJSONArray("accepted"));store.prefs.edit().putLong("last_sync_success",System.currentTimeMillis()).commit();store.status("同步成功 · 本批 ${batch.length()} 条");return JSONObject(response).getJSONArray("accepted").length()>0&&store.counts().second>0}
                 401,403->{store.prefs.edit().putBoolean("sync",false).apply();store.status("凭据失效或设备已撤销，自动同步已关闭")}
                 else->store.status("服务暂不可用（${con.responseCode}）；稍后自动重试")
             }
         }finally{con.disconnect()}
+        return false
     }
 }

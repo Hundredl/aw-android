@@ -17,6 +17,9 @@ class LedgerActivity:Activity(){
     private lateinit var box:LinearLayout
     private lateinit var state:TextView
     private lateinit var toggle:Button
+    private lateinit var today:TextView
+    private var summaryCount=-1
+    private var summaryDay=""
     private val handler=Handler(Looper.getMainLooper())
     private var selected=mutableSetOf<String>()
     private var saveAndStart:()->Unit = {}
@@ -34,6 +37,9 @@ class LedgerActivity:Activity(){
         text("一天",34f);text("记下做过的事，留出自己的空间",16f)
         this.state=text("",16f)
         toggle=button(""){if(store.active()){store.setActive(false);stopService(Intent(this,LedgerService::class.java))}else{saveAndStart()};refresh()}
+        today=text("",16f)
+        button("查看本地历史与统计"){showLocalDay(java.time.LocalDate.now())}
+        text("记录和统计都在手机完成，无需联网。同步只作为可选备份，成功后仍保留本地加密记录。",14f)
         button("1 · 授予应用使用情况权限"){startActivity(Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS))}
         button("2 · 开启内容记录辅助功能（可选）"){startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))}
         text("只记录你勾选的应用。内容试用目前支持 Chrome 白名单网页，其他应用仅计时。无痕内容默认跳过，可单独开启；输入中、密码、锁屏、受保护窗口仍跳过。不是完整浏览历史。",14f)
@@ -72,15 +78,26 @@ class LedgerActivity:Activity(){
         text("仅控制无痕页面的标题和可见文字，浏览器应用计时仍由应用白名单控制。开启后遵循相同域名白名单，并按同步设置上传到你的服务；浏览器禁止采集的窗口仍会跳过。点“保存并开始记录”后生效，不补录过去的内容。关闭不会删除已有记录，可用下方丢弃功能或网页删除。",13f)
         val domains=input("允许的网页域名（英文逗号分隔，精确匹配）",store.prefs.getString("domains","")!!)
         text("不保存原图。只有屏幕上可见的文字，不读取输入框、聊天数据库或后台内容。默认不打开内容采集。",13f)
+        val cloudSettings=LinearLayout(this).also{it.orientation=1;it.visibility=android.view.View.GONE}
+        button("云端同步设置（可选）"){cloudSettings.visibility=if(cloudSettings.visibility==android.view.View.VISIBLE)android.view.View.GONE else android.view.View.VISIBLE}
+        val root=box;box.addView(cloudSettings);box=cloudSettings
         text("同步到你的服务",22f)
         val endpoint=input("服务地址",store.prefs.getString("endpoint","")!!)
         val device=input("设备凭据（网页设备页创建；留空保留原值）","",true)
         val site=input("Sites 服务访问凭据（留空保留原值）","",true)
-        val sync=Switch(this).also{it.text="允许自动同步（约每分钟）";it.isChecked=store.prefs.getBoolean("sync",false);box.addView(it)}
+        val sync=Switch(this).also{it.text="允许自动同步";it.isChecked=store.prefs.getBoolean("sync",false);box.addView(it)}
+        text("自动同步频率",13f)
+        val frequency=Spinner(this).also {
+            it.adapter=ArrayAdapter(this,android.R.layout.simple_spinner_dropdown_item,SyncCadence.labels)
+            it.setSelection(SyncCadence.minutes.indexOf(SyncCadence.normalized(store.prefs.getInt("sync_interval_minutes",60))))
+            box.addView(it)
+        }
+        text("默认约每小时批量上传；后台休眠或断网可能延后。也可以点立即同步。",13f)
+        box=root
         saveAndStart = {
             store.setActive(false);stopService(Intent(this,LedgerService::class.java))
             try {if(device.text.isNotBlank())store.saveSecret("device_token",device.text.toString().trim());if(site.text.isNotBlank())store.saveSecret("site_token",site.text.toString().trim())
-                store.prefs.edit().putString("endpoint",endpoint.text.toString().trim()).putString("packages",selected.joinToString(",")).putString("domains",domains.text.toString().trim()).putBoolean("content",content.isChecked).putBoolean("incognito_content",incognito.isChecked).putBoolean("sync",sync.isChecked).commit()
+                store.prefs.edit().putString("endpoint",endpoint.text.toString().trim()).putString("packages",selected.joinToString(",")).putString("domains",domains.text.toString().trim()).putBoolean("content",content.isChecked).putBoolean("incognito_content",incognito.isChecked).putBoolean("sync",sync.isChecked).putInt("sync_interval_minutes",SyncCadence.minutes[frequency.selectedItemPosition]).commit()
                 device.setText("");site.setText("")
                 if(sync.isChecked&&(endpoint.text.isBlank()||store.secret("device_token").isBlank()||store.secret("site_token").isBlank())){
                     sync.isChecked=false;store.prefs.edit().putBoolean("sync",false).commit()
@@ -91,10 +108,10 @@ class LedgerActivity:Activity(){
         }
         button("保存并开始记录"){saveAndStart()}
         button("立即同步已有记录"){if(store.active())startForegroundService(Intent(this,LedgerService::class.java).setAction("sync"))else Toast.makeText(this,"当前已暂停；开始后才能同步",Toast.LENGTH_SHORT).show()}
-        text("暂停会停止采集和新的上传请求；已发出的请求无法撤回。断网记录留在本机加密队列，恢复后去重同步。上传确认后本机会清空对应文字，只保留去重标记；查看或删除已上传记录请到网页时间线。",13f)
-        button("查看待同步的最近 20 条"){
+        text("暂停会停止采集和新的上传请求；已发出的请求无法撤回。断网记录留在本机加密队列，恢复后去重同步。上传成功后本地加密记录仍保留，可离线回顾；云端记录可到网页管理。",13f)
+        button("查看最近 20 条本地记录"){
             val rows=store.recent().joinToString("\n\n"){e->"${e.getString("start")} · ${e.getString("app")}\n"+(if(e.getString("kind")=="content")e.getString("title")+"\n"+e.getString("text") else "应用使用时段")}
-            AlertDialog.Builder(this).setTitle("本机待同步预览").setMessage(rows.ifEmpty{"没有待同步内容；已上传的内容请到网页查看"}).setPositiveButton("关闭",null).show()
+            AlertDialog.Builder(this).setTitle("本地记录预览").setMessage(rows.ifEmpty{"暂无本地记录"}).setPositiveButton("关闭",null).show()
         }
         button("丢弃本机待同步内容"){
             AlertDialog.Builder(this).setTitle("暂停并丢弃待同步内容？").setMessage("清空本机待同步的文字和区间，仅保留去重标记，不会再次上传。已经发送或上传成功的记录需要在网页删除。").setNegativeButton("取消",null).setPositiveButton("暂停并丢弃"){_,_->store.dismissPending();stopService(Intent(this,LedgerService::class.java));refresh()}.show()
@@ -103,12 +120,39 @@ class LedgerActivity:Activity(){
         requestPermissions(arrayOf(android.Manifest.permission.POST_NOTIFICATIONS),1)
     }
     private fun refresh(){
-        val n=store.counts();val allowed=hasSavedApps();val permission=SessionUtils.hasUsageStatsPermission(this)
+        val n=store.counts()
+        if(::today.isInitialized&&(summaryCount!=n.first||summaryDay!=java.time.LocalDate.now().toString())){val d=localDay(java.time.LocalDate.now());summaryCount=n.first;summaryDay=java.time.LocalDate.now().toString();today.text="今天 · 应用累计 ${duration(d.first.values.sum())} · ${d.first.size} 个应用\n本地记录 ${d.second.size} 条（当前时段结束后计入）"}
+        val allowed=hasSavedApps();val permission=SessionUtils.hasUsageStatsPermission(this)
         val headline=when{!allowed->"○ 未开始：先选择应用";!permission->"○ 未开始：需要使用情况权限";store.active()&&LedgerService.running->"● 正在本机记录";store.active()->"◌ 正在启动";else->"○ 已暂停"}
         val paired=store.prefs.getString("endpoint","").orEmpty().isNotBlank()&&store.prefs.contains("device_token")&&store.prefs.contains("site_token")
-        val cloud=if(!paired)"云端未配置 · 记录只留在本机" else if(store.prefs.getBoolean("sync",false))"自动同步已开启" else "自动同步已关闭"
-        state.text="$headline  · 已采集 ${n.first} 条  · 待同步 ${n.second} 条\n$cloud\n"+store.prefs.getString("status","")+"\n使用情况权限：${if(permission)"已授予" else "缺失"} · 内容服务：${if(ContentService.connected)"已连接" else "未开启"}"
+        val cloud=if(!paired)"云端未配置 · 记录只留在本机" else if(store.prefs.getBoolean("sync",false))"自动同步 · ${SyncCadence.labels[SyncCadence.minutes.indexOf(SyncCadence.normalized(store.prefs.getInt("sync_interval_minutes",60)))]}" else "自动同步已关闭"
+        state.text="$headline  · 本机已采集 ${n.first} 条\n$cloud${if(paired)" · 待同步 ${n.second} 条" else ""}\n"+store.prefs.getString("status","")+"\n使用情况权限：${if(permission)"已授予" else "缺失"} · 内容服务：${if(ContentService.connected)"已连接" else "未开启"}"
         toggle.text=if(store.active())"暂停记录与自动同步" else "开始记录"
+    }
+    private fun duration(ms:Long):String {val m=ms/60000;return if(m>=60)"${m/60} 小时 ${m%60} 分钟" else if(m>0)"$m 分钟" else "${ms/1000} 秒"}
+    private fun localDay(day:java.time.LocalDate):Pair<Map<String,Long>,List<org.json.JSONObject>> {
+        val zone=java.time.ZoneId.systemDefault();val from=day.atStartOfDay(zone).toInstant().toEpochMilli();val to=day.plusDays(1).atStartOfDay(zone).toInstant().toEpochMilli()
+        val totals=mutableMapOf<String,Long>();val rows=mutableListOf<org.json.JSONObject>()
+        for(e in store.localEvents())try{
+            val a=java.time.Instant.parse(e.getString("start")).toEpochMilli();val b=java.time.Instant.parse(e.getString("stop")).toEpochMilli()
+            if(a<to&&b>from){rows.add(e);if(e.optString("kind")=="app"){val name=e.optString("app",e.optString("package"));totals[name]=(totals[name]?:0)+maxOf(0,minOf(b,to)-maxOf(a,from))}}
+        }catch(_:Exception){}
+        return totals to rows
+    }
+    private fun showLocalDay(day:java.time.LocalDate){
+        val data=localDay(day);val format=java.time.format.DateTimeFormatter.ofPattern("HH:mm").withZone(java.time.ZoneId.systemDefault())
+        val report=buildString {
+            append("应用累计使用 ${duration(data.first.values.sum())}\n（按应用时段累计，重叠使用可能重复计入）\n\n")
+            data.first.entries.sortedByDescending{it.value}.forEach{append("${it.key} · ${duration(it.value)}\n")}
+            append("\n当天记录\n")
+            data.second.sortedBy{it.optString("start")}.takeLast(300).forEach {e->
+                append("\n${format.format(java.time.Instant.parse(e.getString("start")))}–${format.format(java.time.Instant.parse(e.getString("stop")))}  ${e.optString("app")}\n")
+                if(e.optString("kind")=="content")append("${e.optString("title")}\n${e.optString("text")}\n")
+            }
+            if(data.second.isEmpty())append("还没有记录。选好应用并开始后，完成的应用使用时段会出现在这里。")
+            if(data.second.size>300)append("\n显示最近300条；统计包含全天数据。")
+        }
+        AlertDialog.Builder(this).setTitle("$day · 本地记录").setMessage(report).setPositiveButton("关闭",null).setNegativeButton("前一天"){_,_->showLocalDay(day.minusDays(1))}.setNeutralButton("选择日期"){_,_->DatePickerDialog(this,{_,y,m,d->showLocalDay(java.time.LocalDate.of(y,m+1,d))},day.year,day.monthValue-1,day.dayOfMonth).show()}.show()
     }
     private val tick=object:Runnable{override fun run(){refresh();handler.postDelayed(this,2000)}}
     override fun onResume(){super.onResume();if(store.active()){if(hasSavedApps()&&SessionUtils.hasUsageStatsPermission(this))startForegroundService(Intent(this,LedgerService::class.java))else{store.setActive(false);stopService(Intent(this,LedgerService::class.java))}};handler.post(tick)}
