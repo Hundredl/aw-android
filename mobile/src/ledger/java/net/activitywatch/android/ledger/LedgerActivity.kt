@@ -37,7 +37,19 @@ class LedgerActivity:Activity(){
         button("选择允许记录的应用"){
             val items=packageManager.queryIntentActivities(Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER),0).map{it.activityInfo.packageName to it.loadLabel(packageManager).toString()}.filter{it.first!=packageName}.distinctBy{it.first}.sortedBy{it.second}
             val draft=selected.toMutableSet()
-            AlertDialog.Builder(this).setTitle("仅这些应用会被记录").setMultiChoiceItems(items.map{it.second}.toTypedArray(),items.map{it.first in draft}.toBooleanArray()){_,i,checked->if(checked)draft.add(items[i].first)else draft.remove(items[i].first)}.setPositiveButton("选好，稍后保存"){_,_->selected=draft;selectionLabel()}.setNegativeButton("取消",null).show()
+            val dialog=AlertDialog.Builder(this).setTitle("允许记录的应用").setMultiChoiceItems(items.map{it.second}.toTypedArray(),items.map{it.first in draft}.toBooleanArray(),null).setPositiveButton("选好，稍后保存"){_,_->selected=draft;selectionLabel()}.setNegativeButton("取消",null).setNeutralButton("全选",null).create()
+            dialog.setOnShowListener {
+                val bulk=dialog.getButton(AlertDialog.BUTTON_NEUTRAL)
+                fun refreshBulk(){bulk.text=if(items.isNotEmpty()&&items.all{it.first in draft})"全不选" else "全选";bulk.isEnabled=items.isNotEmpty()}
+                dialog.listView.setOnItemClickListener{_,_,i,_->if(dialog.listView.isItemChecked(i))draft.add(items[i].first)else draft.remove(items[i].first);refreshBulk()}
+                bulk.setOnClickListener {
+                    val selectAll=!items.all{it.first in draft}
+                    items.forEachIndexed { i,item -> if(selectAll)draft.add(item.first)else draft.remove(item.first);dialog.listView.setItemChecked(i,selectAll) }
+                    refreshBulk()
+                }
+                refreshBulk()
+            }
+            dialog.show()
         }
         val content=Switch(this).also{it.text="允许采集白名单网页标题 / 可见文字";it.isChecked=store.prefs.getBoolean("content",false);box.addView(it)}
         val incognito=Switch(this).also{it.text="记录无痕页面内容（默认关闭）";it.isChecked=store.prefs.getBoolean("incognito_content",false);it.isEnabled=content.isChecked;box.addView(it)}
