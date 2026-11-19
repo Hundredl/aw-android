@@ -37,7 +37,7 @@ android {
             dimension "distribution"
             applicationIdSuffix ".ledger"
             minSdkVersion 34
-            versionNameSuffix "-ledger-pilot6"
+            versionNameSuffix "-ledger-pilot7"
             resValue "string", "app_name", "一天 · 活动记录"
         }
         standard {
@@ -133,6 +133,7 @@ android {
 }
 
 dependencies {
+    ledgerImplementation 'com.google.mlkit:text-recognition-chinese:16.0.1'
     coreLibraryDesugaring 'com.android.tools:desugar_jdk_libs:2.1.5'
 
     implementation fileTree(dir: 'libs', include: ['*.jar'])

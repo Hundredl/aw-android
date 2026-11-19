@@ -7,6 +7,13 @@
 <receiver android:name=".watcher.AlarmReceiver" tools:node="remove"/><receiver android:name=".SyncAlarmReceiver" tools:node="remove"/><receiver android:name=".widget.CategoryTimeWidgetProvider" tools:node="remove"/>
 <provider android:name="androidx.startup.InitializationProvider" tools:node="remove"/>
 <activity android:name=".ledger.LedgerActivity" android:label="一天 · 活动记录" android:theme="@android:style/Theme.Material.Light.NoActionBar" android:exported="true"><intent-filter><action android:name="android.intent.action.MAIN"/><category android:name="android.intent.category.LAUNCHER"/></intent-filter></activity>
+<activity android:name=".ledger.OcrPreviewActivity" android:label="一天 · 提取截图文字" android:theme="@android:style/Theme.Material.Light.NoActionBar" android:exported="true" android:excludeFromRecents="true">
+    <intent-filter>
+        <action android:name="android.intent.action.SEND"/>
+        <category android:name="android.intent.category.DEFAULT"/>
+        <data android:mimeType="image/*"/>
+    </intent-filter>
+</activity>
 <service android:name=".ledger.LedgerService" android:exported="false" android:foregroundServiceType="specialUse"><property android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE" android:value="User-enabled private activity journal, local collection with visible pause action and opt-in synchronization"/></service>
 <service android:name=".ledger.ContentService" android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE" android:exported="true"><intent-filter><action android:name="android.accessibilityservice.AccessibilityService"/></intent-filter><meta-data android:name="android.accessibilityservice" android:resource="@xml/ledger_accessibility"/></service>
 </application></manifest>

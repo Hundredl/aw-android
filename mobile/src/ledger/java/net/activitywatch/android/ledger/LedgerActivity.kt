@@ -39,6 +39,7 @@ class LedgerActivity:Activity(){
         toggle=button(""){if(store.active()){store.setActive(false);stopService(Intent(this,LedgerService::class.java))}else{saveAndStart()};refresh()}
         today=text("",16f)
         button("查看本地历史与统计"){showLocalDay(java.time.LocalDate.now())}
+        button("提取截图文字"){startActivity(Intent(this,OcrPreviewActivity::class.java))}
         text("记录和统计都在手机完成，无需联网。同步只作为可选备份，成功后仍保留本地加密记录。",14f)
         button("1 · 授予应用使用情况权限"){startActivity(Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS))}
         button("2 · 开启内容记录辅助功能（可选）"){startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))}
